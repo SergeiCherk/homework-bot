@@ -11,9 +11,3 @@ class ResponseError(Exception):
     """Исключение при некорректном ответе API."""
 
     pass
-
-
-class StatusError(Exception):
-    """Исключение при неизвестном статусе домашней работы."""
-
-    pass
