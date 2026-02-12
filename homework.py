@@ -10,7 +10,7 @@ import requests
 import telebot
 from dotenv import load_dotenv
 
-from exceptions import APIError, ResponseError, StatusError, CurrentDateError
+from exceptions import APIError, ResponseError, CurrentDateError
 
 # Загрузка переменных окружения из .env файла
 load_dotenv()
@@ -61,9 +61,8 @@ def check_tokens():
             f"Отсутствуют обязательные переменные окружения: "
             f"{', '.join(missing_tokens)}"
         )
-        return False
 
-    return True
+    return not missing_tokens
 
 
 def send_message(bot, message):
@@ -75,14 +74,14 @@ def send_message(bot, message):
         message (str): Текст сообщения для отправки.
 
     Raises:
-        Exception: При ошибке отправки сообщения.
+        telebot.apihelper.ApiException: При ошибке отправки сообщения.
     """
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug(f'Бот отправил сообщение "{message}"')
-    except Exception as error:
+    except telebot.apihelper.ApiException as error:
         logger.error(f'Сбой при отправке сообщения в Telegram: {error}')
-        raise
+    else:
+        logger.debug(f'Бот отправил сообщение "{message}"')
 
 
 def get_api_answer(timestamp):
@@ -105,19 +104,14 @@ def get_api_answer(timestamp):
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
 
         if response.status_code != HTTPStatus.OK:
-            error_msg = (
+            raise APIError(
                 f'Эндпоинт {ENDPOINT} недоступен. '
                 f'Код ответа API: {response.status_code}'
             )
-            logger.error(error_msg)
-            raise APIError(error_msg)
-
         return response.json()
 
     except requests.RequestException as error:
-        error_msg = f'Ошибка при запросе к API: {error}'
-        logger.error(error_msg)
-        raise APIError(error_msg)
+        raise APIError(f'Ошибка при запросе к API: {error}')
 
 
 def check_response(response):
@@ -169,7 +163,7 @@ def parse_status(homework):
 
     Raises:
         KeyError: При отсутствии ожидаемых ключей в данных.
-        StatusError: При неожиданном статусе домашней работы.
+        ValueError: При неожиданном статусе домашней работы.
     """
     if 'homework_name' not in homework:
         raise KeyError('Отсутствует ключ "homework_name" в ответе API')
@@ -181,7 +175,7 @@ def parse_status(homework):
     status = homework['status']
 
     if status not in HOMEWORK_VERDICTS:
-        raise StatusError(f'Неожиданный статус домашней работы: {status}')
+        raise ValueError(f'Неожиданный статус домашней работы: {status}')
 
     verdict = HOMEWORK_VERDICTS[status]
 
@@ -212,10 +206,10 @@ def main():
             # Проверка ответа
             homeworks = check_response(response)
 
-            # Обработка домашних работ
+            # Обработка домашних работ — интересует только последняя
             if homeworks:
-                for homework in homeworks:
-                    message = parse_status(homework)
+                message = parse_status(homeworks[0])
+                if message != last_error_message:
                     send_message(bot, message)
 
                 # Обновление временной метки
@@ -225,6 +219,10 @@ def main():
 
             # Сброс последней ошибки при успешном выполнении
             last_error_message = ''
+
+        except CurrentDateError as error:
+            # Только логируем, не отправляем в Telegram
+            logger.error(f'Сбой в работе программы: {error}')
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
