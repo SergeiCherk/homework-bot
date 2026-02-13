@@ -15,13 +15,6 @@ from exceptions import APIError, ResponseError, CurrentDateError
 # Загрузка переменных окружения из .env файла
 load_dotenv()
 
-# Инициализация логгера
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
-
 logger = logging.getLogger(__name__)
 
 # Константы
@@ -82,6 +75,24 @@ def send_message(bot, message):
         logger.error(f'Сбой при отправке сообщения в Telegram: {error}')
     else:
         logger.debug(f'Бот отправил сообщение "{message}"')
+
+
+def send_if_new(bot, message, last_message):
+    """
+    Отправляет сообщение только если оно отличается от предыдущего.
+
+    Args:
+        bot: Экземпляр класса TeleBot.
+        message (str): Текст сообщения для отправки.
+        last_message (str): Последнее отправленное сообщение.
+
+    Returns:
+        str: Текст отправленного сообщения (новое значение last_message).
+    """
+    if message != last_message:
+        send_message(bot, message)
+        return message
+    return last_message
 
 
 def get_api_answer(timestamp):
@@ -209,8 +220,11 @@ def main():
             # Обработка домашних работ — интересует только последняя
             if homeworks:
                 message = parse_status(homeworks[0])
-                if message != last_error_message:
-                    send_message(bot, message)
+                last_error_message = send_if_new(
+                    bot,
+                    message,
+                    last_error_message,
+                )
 
                 # Обновление временной метки
                 timestamp = response.get('current_date', timestamp)
@@ -227,11 +241,7 @@ def main():
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logger.error(message)
-
-            # Отправка сообщения об ошибке, если это новая ошибка
-            if message != last_error_message:
-                last_error_message = message
-                send_message(bot, message)
+            last_error_message = send_if_new(bot, message, last_error_message)
 
         finally:
             # Ожидание перед следующей проверкой
@@ -239,4 +249,9 @@ def main():
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
     main()
